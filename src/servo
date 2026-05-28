@@ -1,0 +1,108 @@
+use cortex_m::asm::delay;
+use stm32u5::stm32u545::Peripherals;
+
+use crate::buzzer;
+use crate::leds;
+
+// Servo 1 -> A5 = PC0
+// Servo 2 -> A4 = PC1
+const SERVO_LEFT: u32 = 0;
+const SERVO_RIGHT: u32 = 1;
+
+const SERVO_DELAY_FACTOR: u32 = 12;
+
+fn delay_ms(ms: u32) {
+    for _ in 0..ms {
+        delay(8_000);
+    }
+}
+
+pub fn init_servos(dp: &Peripherals) {
+    dp.RCC.ahb2enr1().modify(|_, w| {
+        w.gpiocen().set_bit()
+    });
+
+    dp.GPIOC.moder().modify(|r, w| unsafe {
+        let mut bits = r.bits();
+
+        bits &= !(0b11 << (SERVO_LEFT * 2));
+        bits |= 0b01 << (SERVO_LEFT * 2);
+
+        bits &= !(0b11 << (SERVO_RIGHT * 2));
+        bits |= 0b01 << (SERVO_RIGHT * 2);
+
+        w.bits(bits)
+    });
+
+    stop_servos(dp);
+}
+
+fn pulse_pin(dp: &Peripherals, pin: u32, us: u32) {
+    dp.GPIOC.bsrr().write(|w| unsafe {
+        w.bits(1 << pin)
+    });
+
+    delay(us * SERVO_DELAY_FACTOR);
+
+    dp.GPIOC.bsrr().write(|w| unsafe {
+        w.bits(1 << (pin + 16))
+    });
+}
+
+fn both_position(dp: &Peripherals, left_us: u32, right_us: u32, frames: u32) {
+    for _ in 0..frames {
+        pulse_pin(dp, SERVO_LEFT, left_us);
+        delay_ms(2);
+
+        pulse_pin(dp, SERVO_RIGHT, right_us);
+        delay_ms(20);
+    }
+}
+
+pub fn stop_servos(dp: &Peripherals) {
+    both_position(dp, 1500, 1500, 20);
+}
+
+fn sweep_both(dp: &Peripherals, from_us: u32, to_us: u32) {
+    if from_us < to_us {
+        let mut pos = from_us;
+
+        while pos <= to_us {
+            both_position(dp, pos, pos, 4);
+            pos += 100;
+        }
+    } else {
+        let mut pos = from_us;
+
+        while pos >= to_us {
+            both_position(dp, pos, pos, 4);
+
+            if pos < 100 {
+                break;
+            }
+
+            pos -= 100;
+        }
+    }
+}
+
+pub fn boot_animation(dp: &Peripherals) {
+    sweep_both(dp, 500, 2500);
+
+    leds::boot_animation(dp);
+
+    stop_servos(dp);
+}
+
+pub fn highscore_animation(dp: &Peripherals) {
+    sweep_both(dp, 500, 2500);
+
+    buzzer::play_note(dp, 1200, 100);
+    buzzer::play_note(dp, 1600, 100);
+
+    leds::all_on(dp);
+    delay_ms(500);
+    leds::all_off(dp);
+
+    stop_servos(dp);
+}
