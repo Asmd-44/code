@@ -1,0 +1,187 @@
+use cortex_m::asm::delay;
+use stm32u5::stm32u545::Peripherals;
+
+use crate::songs::Note;
+//buzz -> D3
+const BUZZER_PIN: u32 = 3;
+
+fn delay_ms(ms: u32) {
+    delay(ms * 8_000);
+}
+
+pub fn init_buzzer(dp: &Peripherals) {
+    dp.RCC.ahb2enr1().modify(|_, w| {
+        w.gpioben().set_bit()
+    });
+
+    dp.GPIOB.moder().modify(|r, w| unsafe {
+        let mut bits = r.bits();
+
+        bits &= !(0b11 << (BUZZER_PIN * 2));
+        bits |= 0b01 << (BUZZER_PIN * 2);
+
+        w.bits(bits)
+    });
+
+    stop_buzzer(dp);
+}
+
+pub fn play_note(dp: &Peripherals, frequency: u32, duration_ms: u32) {
+    if frequency == 0 {
+        stop_buzzer(dp);
+        delay_ms(duration_ms);
+        return;
+    }
+
+    let half_period = 800_000 / frequency;
+    let cycles = (frequency * duration_ms) / 1000;
+
+    for _ in 0..cycles {
+        dp.GPIOB.bsrr().write(|w| unsafe {
+            w.bits(1 << BUZZER_PIN)
+        });
+
+        delay(half_period);
+
+        dp.GPIOB.bsrr().write(|w| unsafe {
+            w.bits(1 << (BUZZER_PIN + 16))
+        });
+
+        delay(half_period);
+    }
+
+    stop_buzzer(dp);
+}
+
+pub fn stop_buzzer(dp: &Peripherals) {
+    dp.GPIOB.bsrr().write(|w| unsafe {
+        w.bits(1 << (BUZZER_PIN + 16))
+    });
+}
+
+pub fn play_song(
+    dp: &Peripherals,
+    song: &[Note],
+    score: &mut i32,
+    difficulty: u8,
+) {
+    let mut combo: i32 = 0;
+    let mut step: u8 = 0;
+
+    for note in song {
+        crate::leds::all_off(dp);
+
+        if note.led >= 5 || note.frequency == 0 {
+            let rest_duration = note.duration as u32 / 2;
+
+            play_note(dp, 0, rest_duration);
+
+            crate::leds::all_off(dp);
+
+            delay_ms(20);
+
+            combo = 0;
+
+            continue;
+        }
+
+        let game_led = select_led(note.led, step, difficulty);
+
+        crate::leds::set_led(dp, game_led, true);
+
+        let note_duration = match difficulty {
+            0 => note.duration as u32,
+            1 => note.duration as u32,
+            _ => note.duration as u32 * 12 / 10,
+        };
+
+        play_note(dp, note.frequency as u32, note_duration);
+
+        let reaction_time = match difficulty {
+            0 => 55, // easy
+            1 => 40, // medium
+            _ => 35, // hard
+        };
+
+        let mut hit = false;
+
+        for _ in 0..reaction_time {
+            if crate::buttons::button_pressed(dp, game_led) {
+                let bonus = combo.min(10);
+
+                *score += 10 + bonus;
+
+                combo += 1;
+
+                crate::leds::hit_flash(dp);
+
+                hit = true;
+
+                break;
+            }
+
+            delay_ms(1);
+        }
+
+        if !hit {
+            *score -= 1;
+
+            combo = 0;
+        }
+
+        if *score < 0 {
+            *score = 0;
+        }
+
+        crate::leds::all_off(dp);
+
+        stop_buzzer(dp);
+
+        delay_ms(8);
+
+        step = step.wrapping_add(1);
+    }
+}
+
+fn select_led(original_led: u8, step: u8, difficulty: u8) -> u8 {
+    match difficulty {
+        0 => {
+            match step % 6 {
+                0 => original_led,
+                1 => original_led,
+                2 => (original_led + 1) % 5,
+                3 => original_led,
+                4 => original_led,
+                _ => (original_led + 4) % 5,
+            }
+        }
+
+        1 => {
+            match step % 8 {
+                0 => original_led,
+                1 => (original_led + 1) % 5,
+                2 => (original_led + 3) % 5,
+                3 => original_led,
+                4 => (original_led + 2) % 5,
+                5 => (original_led + 4) % 5,
+                6 => original_led,
+                _ => (step + original_led) % 5,
+            }
+        }
+
+        _ => {
+            match step % 10 {
+                0 => 0,
+                1 => 1,
+                2 => 0,
+                3 => 2,
+                4 => 3,
+                5 => 2,
+                6 => 4,
+                7 => 1,
+                8 => 4,
+                _ => 3,
+            }
+        }
+    }
+}
