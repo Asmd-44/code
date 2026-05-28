@@ -1,0 +1,208 @@
+use stm32u5::stm32u545::Peripherals;
+
+use crate::buttons;
+use crate::buzzer;
+use crate::display;
+use crate::leds;
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum GameState {
+    Boot,
+    MainMenu,
+    DifficultyMenu,
+    LeaderboardMenu,
+    LeaderboardView,
+    WaitStart,
+    Countdown,
+    Gameplay,
+    Results,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum GameMode {
+    Rhythm,
+    Memory,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Difficulty {
+    Easy,
+    Medium,
+    Hard,
+}
+
+pub struct Game {
+    pub state: GameState,
+    pub mode: GameMode,
+    pub difficulty: Difficulty,
+    pub score: i32,
+
+    pub rhythm_highscores: [i32; 3],
+    pub memory_highscores: [i32; 3],
+}
+
+impl Game {
+    pub fn new() -> Self {
+        Self {
+            state: GameState::Boot,
+            mode: GameMode::Rhythm,
+            difficulty: Difficulty::Easy,
+            score: 0,
+
+            rhythm_highscores: [0, 0, 0],
+            memory_highscores: [0, 0, 0],
+        }
+    }
+
+    pub fn set_mode(&mut self, mode: GameMode) {
+        self.mode = mode;
+    }
+
+    pub fn set_difficulty(&mut self, diff: Difficulty) {
+        self.difficulty = diff;
+    }
+
+    pub fn reset_score(&mut self) {
+        self.score = 0;
+    }
+
+    pub fn difficulty_index(&self) -> usize {
+        match self.difficulty {
+            Difficulty::Easy => 0,
+            Difficulty::Medium => 1,
+            Difficulty::Hard => 2,
+        }
+    }
+
+    pub fn update_highscore(&mut self) -> bool {
+    let index = self.difficulty_index();
+
+    if self.mode == GameMode::Rhythm {
+        if self.score > self.rhythm_highscores[index] {
+            self.rhythm_highscores[index] = self.score;
+            return true;
+        }
+    } else {
+        if self.score > self.memory_highscores[index] {
+            self.memory_highscores[index] = self.score;
+            return true;
+        }
+    }
+
+    false
+}
+}
+
+pub fn play_memory_game(
+    dp: &Peripherals,
+    score: &mut i32,
+    led_on_ms: u32,
+    pause_ms: u32,
+) {
+    let sequence: [usize; 20] = if led_on_ms >= 600 {
+    // EASY
+    [
+    0, 2, 1, 3, 4,
+    1, 0, 4, 2, 3,
+    2, 4, 1, 0, 3,
+    1, 3, 2, 4, 0,
+    ]
+} else if led_on_ms >= 450 {
+    // MEDIUM
+    [
+        0, 2, 2, 4, 1,
+        3, 0, 4, 4, 2,
+        1, 3, 3, 0, 2,
+        4, 1, 0, 3, 2,
+    ]
+} else {
+    // HARD
+    [
+        0, 3, 1, 1, 4,
+        2, 0, 4, 2, 2,
+        3, 1, 4, 0, 0,
+        2, 4, 3, 3, 1,
+    ]
+};
+
+    let tones: [u32; 5] = [262, 330, 392, 523, 659];
+
+    *score = 0;
+
+    for round in 1..=20 {
+        display::show_memory_round(dp, round as i32, *score);
+
+        cortex_m::asm::delay(800_000);
+
+        
+        for i in 0..round {
+            let led = sequence[i];
+
+            leds::set_led(dp, led as u8, true);
+            buzzer::play_note(dp, tones[led], led_on_ms);
+            leds::set_led(dp, led as u8, false);
+
+            delay_ms(pause_ms);
+        }
+
+        wait_until_no_buttons(dp);
+
+        
+        for i in 0..round {
+            let expected_button = sequence[i];
+            let pressed = wait_for_game_button(dp, &tones);
+
+            if pressed == expected_button {
+                *score += 1;
+            } else {
+                buzzer::play_note(dp, 180, 700);
+                display::show_wrong(dp);
+                cortex_m::asm::delay(1_500_000);
+                return;
+            }
+        }
+    }
+}
+
+fn wait_for_game_button(dp: &Peripherals, tones: &[u32; 5]) -> usize {
+    loop {
+        for i in 0..5usize {
+            if buttons::button_pressed(dp, i as u8) {
+            
+                leds::set_led(dp, i as u8, true);
+                buzzer::play_note(dp, tones[i], 180);
+                leds::set_led(dp, i as u8, false);
+
+                wait_until_no_buttons(dp);
+
+                return i;
+            }
+        }
+    }
+}
+
+fn wait_until_no_buttons(dp: &Peripherals) {
+    loop {
+        let mut any_pressed = false;
+
+        for i in 0..5u8 {
+            if buttons::button_pressed(dp, i) {
+                any_pressed = true;
+            }
+        }
+
+        if !any_pressed {
+            break;
+        }
+
+        cortex_m::asm::delay(80_000);
+    }
+
+    cortex_m::asm::delay(120_000);
+}
+
+fn delay_ms(ms: u32) {
+    for _ in 0..ms {
+        cortex_m::asm::delay(8_000);
+    }
+}
