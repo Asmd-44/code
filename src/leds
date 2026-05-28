@@ -1,0 +1,136 @@
+use cortex_m::asm::delay;
+use stm32u5::stm32u545::Peripherals;
+const HIT_LED_PIN: u32 = 8;
+const LED1: u32 = 7;
+const LED2: u32 = 9;
+const LED3: u32 = 6;
+const LED4: u32 = 10;
+const LED5: u32 = 4;
+//left-D11,Up-D6,Rigt-D9,Down-D10,Swich-D5,Check-D2
+
+pub fn init_leds(dp: &Peripherals) {
+    dp.RCC.ahb2enr1().modify(|_, w| {
+        w.gpioaen().set_bit();
+        w.gpioben().set_bit();
+        w.gpiocen().set_bit()
+    });
+
+    dp.GPIOA.moder().modify(|r, w| unsafe {
+        let mut bits = r.bits();
+        bits &= !(0b11 << (LED1 * 2));
+        bits |= 0b01 << (LED1 * 2);
+        w.bits(bits)
+    });
+
+    dp.GPIOC.moder().modify(|r, w| unsafe {
+        let mut bits = r.bits();
+
+        bits &= !(0b11 << (LED2 * 2));
+        bits |= 0b01 << (LED2 * 2);
+
+        bits &= !(0b11 << (LED3 * 2));
+        bits |= 0b01 << (LED3 * 2);
+
+        w.bits(bits)
+    });
+
+    dp.GPIOB.moder().modify(|r, w| unsafe {
+        let mut bits = r.bits();
+
+        bits &= !(0b11 << (LED4 * 2));
+        bits |= 0b01 << (LED4 * 2);
+
+        bits &= !(0b11 << (LED5 * 2));
+        bits |= 0b01 << (LED5 * 2);
+
+        w.bits(bits)
+    });
+
+    all_off(dp);
+dp.GPIOC.moder().modify(|r, w| unsafe {
+    let mut bits = r.bits();
+
+    bits &= !(0b11 << (HIT_LED_PIN * 2));
+    bits |= 0b01 << (HIT_LED_PIN * 2);
+
+    w.bits(bits)
+});
+
+}
+
+pub fn all_on(dp: &Peripherals) {
+    for i in 0..5 {
+        set_led(dp, i, true);
+    }
+}
+
+pub fn all_off(dp: &Peripherals) {
+    for i in 0..5 {
+        set_led(dp, i, false);
+    }
+}
+
+pub fn set_led(dp: &Peripherals, index: u8, on: bool) {
+    match index {
+        0 => write_pin(dp, 'A', LED1, on),
+        1 => write_pin(dp, 'C', LED2, on),
+        2 => write_pin(dp, 'C', LED3, on),
+        3 => write_pin(dp, 'B', LED4, on),
+        4 => write_pin(dp, 'B', LED5, on),
+        _ => {}
+    }
+}
+
+fn write_pin(dp: &Peripherals, port: char, pin: u32, on: bool) {
+    let bit = if on { 1 << pin } else { 1 << (pin + 16) };
+
+    match port {
+        'A' => {
+            dp.GPIOA.bsrr().write(|w| unsafe { w.bits(bit) });
+        }
+        'B' => {
+            dp.GPIOB.bsrr().write(|w| unsafe { w.bits(bit) });
+        }
+        'C' => {
+            dp.GPIOC.bsrr().write(|w| unsafe { w.bits(bit) });
+        }
+        _ => {}
+    }
+}
+
+pub fn boot_animation(dp: &Peripherals) {
+    all_on(dp);
+    delay(3_500_000);
+
+    all_off(dp);
+    delay(300_000);
+}
+
+
+pub fn idle_animation_step(dp: &Peripherals, step: u8) {
+    all_off(dp);
+    set_led(dp, step % 5, true);
+    delay(750_000);
+}
+
+pub fn wait_start_animation(dp: &Peripherals) {
+    all_on(dp);
+    delay(750_000);
+
+    all_off(dp);
+    delay(750_000);
+}
+
+pub fn hit_flash(dp: &Peripherals) {
+    dp.GPIOC.bsrr().write(|w| unsafe {
+        w.bits(1 << HIT_LED_PIN)
+    });
+
+    delay(180_000);
+
+    dp.GPIOC.bsrr().write(|w| unsafe {
+        w.bits(1 << (HIT_LED_PIN + 16))
+    });
+}
+
+   
