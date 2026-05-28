@@ -1,0 +1,546 @@
+use cortex_m::asm::delay;
+use stm32u5::stm32u545::Peripherals;
+
+const OLED_ADDR: u8 = 0x78;
+
+const COL_OFFSET: u8 = 2;
+
+// SCL = PB6
+// SDA = PB7
+const SCL: u32 = 6;
+const SDA: u32 = 7;
+
+pub fn init_display(dp: &Peripherals) {
+    init_i2c_pins(dp);
+
+    delay(2_000_000);
+
+    command(dp, 0xAE);
+    command(dp, 0xD5);
+    command(dp, 0x80);
+    command(dp, 0xA8);
+    command(dp, 0x3F);
+    command(dp, 0xD3);
+    command(dp, 0x00);
+    command(dp, 0x40);
+    command(dp, 0x8D);
+    command(dp, 0x14);
+    command(dp, 0x20);
+    command(dp, 0x02);
+    command(dp, 0xA1);
+    command(dp, 0xC8);
+    command(dp, 0xDA);
+    command(dp, 0x12);
+    command(dp, 0x81);
+    command(dp, 0xCF);
+    command(dp, 0xD9);
+    command(dp, 0xF1);
+    command(dp, 0xDB);
+    command(dp, 0x40);
+    command(dp, 0xA4);
+    command(dp, 0xA6);
+    command(dp, 0xAF);
+
+    clear(dp);
+}
+
+fn init_i2c_pins(dp: &Peripherals) {
+    dp.RCC.ahb2enr1().modify(|_, w| {
+        w.gpioben().set_bit()
+    });
+
+    dp.GPIOB.moder().modify(|r, w| unsafe {
+        let mut bits = r.bits();
+
+        bits &= !(0b11 << (SCL * 2));
+        bits |= 0b01 << (SCL * 2);
+
+        bits &= !(0b11 << (SDA * 2));
+        bits |= 0b01 << (SDA * 2);
+
+        w.bits(bits)
+    });
+
+    dp.GPIOB.otyper().modify(|r, w| unsafe {
+        let mut bits = r.bits();
+
+        bits |= 1 << SCL;
+        bits |= 1 << SDA;
+
+        w.bits(bits)
+    });
+
+    dp.GPIOB.pupdr().modify(|r, w| unsafe {
+        let mut bits = r.bits();
+
+        bits &= !(0b11 << (SCL * 2));
+        bits |= 0b01 << (SCL * 2);
+
+        bits &= !(0b11 << (SDA * 2));
+        bits |= 0b01 << (SDA * 2);
+
+        w.bits(bits)
+    });
+
+    scl_high(dp);
+    sda_high(dp);
+}
+
+fn small_delay() {
+    delay(15);
+}
+
+fn scl_high(dp: &Peripherals) {
+    dp.GPIOB.bsrr().write(|w| unsafe { w.bits(1 << SCL) });
+    small_delay();
+}
+
+fn scl_low(dp: &Peripherals) {
+    dp.GPIOB.bsrr().write(|w| unsafe { w.bits(1 << (SCL + 16)) });
+    small_delay();
+}
+
+fn sda_high(dp: &Peripherals) {
+    dp.GPIOB.bsrr().write(|w| unsafe { w.bits(1 << SDA) });
+    small_delay();
+}
+
+fn sda_low(dp: &Peripherals) {
+    dp.GPIOB.bsrr().write(|w| unsafe { w.bits(1 << (SDA + 16)) });
+    small_delay();
+}
+
+fn i2c_start(dp: &Peripherals) {
+    sda_high(dp);
+    scl_high(dp);
+    sda_low(dp);
+    scl_low(dp);
+}
+
+fn i2c_stop(dp: &Peripherals) {
+    sda_low(dp);
+    scl_high(dp);
+    sda_high(dp);
+}
+
+fn i2c_write(dp: &Peripherals, byte: u8) {
+    let mut b = byte;
+
+    for _ in 0..8 {
+        if b & 0x80 != 0 {
+            sda_high(dp);
+        } else {
+            sda_low(dp);
+        }
+
+        scl_high(dp);
+        scl_low(dp);
+
+        b <<= 1;
+    }
+
+    sda_high(dp);
+    scl_high(dp);
+    scl_low(dp);
+}
+
+fn command(dp: &Peripherals, cmd: u8) {
+    i2c_start(dp);
+    i2c_write(dp, OLED_ADDR);
+    i2c_write(dp, 0x00);
+    i2c_write(dp, cmd);
+    i2c_stop(dp);
+}
+
+fn data(dp: &Peripherals, value: u8) {
+    i2c_start(dp);
+    i2c_write(dp, OLED_ADDR);
+    i2c_write(dp, 0x40);
+    i2c_write(dp, value);
+    i2c_stop(dp);
+}
+
+fn set_pos(dp: &Peripherals, page: u8, col: u8) {
+    let c = col + COL_OFFSET;
+
+    command(dp, 0xB0 + page);
+    command(dp, 0x00 + (c & 0x0F));
+    command(dp, 0x10 + ((c >> 4) & 0x0F));
+}
+
+fn clear(dp: &Peripherals) {
+    for page in 0..8 {
+        set_pos(dp, page, 0);
+
+        i2c_start(dp);
+
+        i2c_write(dp, OLED_ADDR);
+        i2c_write(dp, 0x40);
+
+        for _ in 0..128 {
+            i2c_write(dp, 0x00);
+        }
+
+        i2c_stop(dp);
+    }
+}
+
+fn draw_text(dp: &Peripherals, page: u8, col: u8, text: &str) {
+    let mut x = col;
+
+    for ch in text.bytes() {
+        draw_char(dp, page, x, ch);
+        x += 6;
+
+        if x > 122 {
+            break;
+        }
+    }
+}
+
+fn clear_line(dp: &Peripherals, page: u8) {
+    set_pos(dp, page, 0);
+
+    for _ in 0..128 {
+        data(dp, 0x00);
+    }
+}
+
+fn draw_menu_line(dp: &Peripherals, page: u8, text: &str) {
+    clear_line(dp, page);
+    draw_text(dp, page, 10, text);
+}
+
+fn draw_char(dp: &Peripherals, page: u8, col: u8, ch: u8) {
+    let font = font5x7(ch);
+
+    set_pos(dp, page, col);
+
+    i2c_start(dp);
+    i2c_write(dp, OLED_ADDR);
+    i2c_write(dp, 0x40);
+
+    for b in font {
+        i2c_write(dp, b);
+    }
+
+    i2c_write(dp, 0x00);
+
+    i2c_stop(dp);
+}
+
+fn font5x7(ch: u8) -> [u8; 5] {
+    match ch {
+        b'0' => [0x3E, 0x51, 0x49, 0x45, 0x3E],
+        b'1' => [0x00, 0x42, 0x7F, 0x40, 0x00],
+        b'2' => [0x42, 0x61, 0x51, 0x49, 0x46],
+        b'3' => [0x21, 0x41, 0x45, 0x4B, 0x31],
+        b'4' => [0x18, 0x14, 0x12, 0x7F, 0x10],
+        b'5' => [0x27, 0x45, 0x45, 0x45, 0x39],
+        b'6' => [0x3C, 0x4A, 0x49, 0x49, 0x30],
+        b'7' => [0x01, 0x71, 0x09, 0x05, 0x03],
+        b'8' => [0x36, 0x49, 0x49, 0x49, 0x36],
+        b'9' => [0x06, 0x49, 0x49, 0x29, 0x1E],
+
+        b'A' => [0x7E, 0x11, 0x11, 0x11, 0x7E],
+        b'B' => [0x7F, 0x49, 0x49, 0x49, 0x36],
+        b'C' => [0x3E, 0x41, 0x41, 0x41, 0x22],
+        b'D' => [0x7F, 0x41, 0x41, 0x22, 0x1C],
+        b'E' => [0x7F, 0x49, 0x49, 0x49, 0x41],
+        b'F' => [0x7F, 0x09, 0x09, 0x09, 0x01],
+        b'G' => [0x3E, 0x41, 0x49, 0x49, 0x7A],
+        b'H' => [0x7F, 0x08, 0x08, 0x08, 0x7F],
+        b'I' => [0x00, 0x41, 0x7F, 0x41, 0x00],
+        b'J' => [0x20, 0x40, 0x41, 0x3F, 0x01],
+        b'K' => [0x7F, 0x08, 0x14, 0x22, 0x41],
+        b'L' => [0x7F, 0x40, 0x40, 0x40, 0x40],
+        b'M' => [0x7F, 0x02, 0x0C, 0x02, 0x7F],
+        b'N' => [0x7F, 0x04, 0x08, 0x10, 0x7F],
+        b'O' => [0x3E, 0x41, 0x41, 0x41, 0x3E],
+        b'P' => [0x7F, 0x09, 0x09, 0x09, 0x06],
+        b'Q' => [0x3E, 0x41, 0x51, 0x21, 0x5E],
+        b'R' => [0x7F, 0x09, 0x19, 0x29, 0x46],
+        b'S' => [0x46, 0x49, 0x49, 0x49, 0x31],
+        b'T' => [0x01, 0x01, 0x7F, 0x01, 0x01],
+        b'U' => [0x3F, 0x40, 0x40, 0x40, 0x3F],
+        b'V' => [0x1F, 0x20, 0x40, 0x20, 0x1F],
+        b'W' => [0x7F, 0x20, 0x18, 0x20, 0x7F],
+        b'X' => [0x63, 0x14, 0x08, 0x14, 0x63],
+        b'Y' => [0x07, 0x08, 0x70, 0x08, 0x07],
+        b'Z' => [0x61, 0x51, 0x49, 0x45, 0x43],
+
+        b'>' => [0x08, 0x14, 0x22, 0x41, 0x00],
+        b':' => [0x00, 0x36, 0x36, 0x00, 0x00],
+        b'!' => [0x00, 0x00, 0x5F, 0x00, 0x00],
+        b'-' => [0x08, 0x08, 0x08, 0x08, 0x08],
+        b' ' => [0x00, 0x00, 0x00, 0x00, 0x00],
+        _ => [0x00, 0x00, 0x00, 0x00, 0x00],
+    }
+}
+
+fn draw_score_number(dp: &Peripherals, mut score: i32) {
+    let mut buf = [b' '; 8];
+
+    if score < 0 {
+        buf[0] = b'-';
+        score = -score;
+    }
+
+    let mut n = score as u32;
+    let mut i = 7;
+
+    if n == 0 {
+        buf[7] = b'0';
+    } else {
+        while n > 0 && i > 0 {
+            buf[i] = b'0' + (n % 10) as u8;
+            n /= 10;
+            i -= 1;
+        }
+    }
+
+    let mut col = 30;
+
+    for ch in buf {
+        draw_char(dp, 4, col, ch);
+        col += 6;
+    }
+}
+
+fn draw_small_number(dp: &Peripherals, page: u8, col: u8, mut number: i32) {
+    let mut buf = [b' '; 4];
+
+    if number < 0 {
+        number = 0;
+    }
+
+    let mut n = number as u32;
+    let mut i = 3;
+
+    if n == 0 {
+        buf[3] = b'0';
+    } else {
+        while n > 0 && i > 0 {
+            buf[i] = b'0' + (n % 10) as u8;
+            n /= 10;
+            i -= 1;
+        }
+    }
+
+    let mut x = col;
+
+    for ch in buf {
+        draw_char(dp, page, x, ch);
+        x += 6;
+    }
+}
+
+pub fn show_boot(dp: &Peripherals) {
+    clear(dp);
+    draw_text(dp, 2, 20, "WELCOME!");
+}
+
+
+pub fn show_rhythm_level_menu(dp: &Peripherals, selected: u8) {
+
+    clear_line(dp, 0);
+
+    draw_text(dp, 0, 20, "RHYTHM LEVEL");
+
+    if selected == 0 {
+        draw_menu_line(dp, 2, "> EASY");
+        draw_menu_line(dp, 3, "  MEDIUM");
+        draw_menu_line(dp, 4, "  HARD");
+        draw_menu_line(dp, 5, "  BACK");
+    } else if selected == 1 {
+        draw_menu_line(dp, 2, "  EASY");
+        draw_menu_line(dp, 3, "> MEDIUM");
+        draw_menu_line(dp, 4, "  HARD");
+        draw_menu_line(dp, 5, "  BACK");
+    } else if selected == 2 {
+        draw_menu_line(dp, 2, "  EASY");
+        draw_menu_line(dp, 3, "  MEDIUM");
+        draw_menu_line(dp, 4, "> HARD");
+        draw_menu_line(dp, 5, "  BACK");
+    } else {
+        draw_menu_line(dp, 2, "  EASY");
+        draw_menu_line(dp, 3, "  MEDIUM");
+        draw_menu_line(dp, 4, "  HARD");
+        draw_menu_line(dp, 5, "> BACK");
+    }
+}
+
+pub fn show_memory_level_menu(dp: &Peripherals, selected: u8) {
+
+    clear_line(dp, 0);
+
+    draw_text(dp, 0, 20, "MEMORY LEVEL");
+
+    if selected == 0 {
+        draw_menu_line(dp, 2, "> EASY");
+        draw_menu_line(dp, 3, "  MEDIUM");
+        draw_menu_line(dp, 4, "  HARD");
+        draw_menu_line(dp, 5, "  BACK");
+    } else if selected == 1 {
+        draw_menu_line(dp, 2, "  EASY");
+        draw_menu_line(dp, 3, "> MEDIUM");
+        draw_menu_line(dp, 4, "  HARD");
+        draw_menu_line(dp, 5, "  BACK");
+    } else if selected == 2 {
+        draw_menu_line(dp, 2, "  EASY");
+        draw_menu_line(dp, 3, "  MEDIUM");
+        draw_menu_line(dp, 4, "> HARD");
+        draw_menu_line(dp, 5, "  BACK");
+    } else {
+        draw_menu_line(dp, 2, "  EASY");
+        draw_menu_line(dp, 3, "  MEDIUM");
+        draw_menu_line(dp, 4, "  HARD");
+        draw_menu_line(dp, 5, "> BACK");
+    }
+}
+
+pub fn show_wait_start(dp: &Peripherals) {
+    clear(dp);
+    draw_text(dp, 2, 25, "LEVEL SET");
+    draw_text(dp, 4, 10, "PRESS START");
+}
+
+pub fn show_ready(dp: &Peripherals) {
+    clear(dp);
+    draw_text(dp, 3, 42, "READY?");
+}
+
+pub fn show_go(dp: &Peripherals) {
+    clear(dp);
+    draw_text(dp, 3, 52, "GO!");
+}
+
+pub fn show_score(dp: &Peripherals, score: i32) {
+    clear(dp);
+    draw_text(dp, 2, 35, "SCORE");
+    draw_score_number(dp, score);
+}
+
+pub fn show_memory_round(dp: &Peripherals, round: i32, score: i32) {
+    clear(dp);
+
+    draw_text(dp, 1, 20, "MEMORY GAME");
+
+    draw_text(dp, 3, 10, "ROUND:");
+    draw_small_number(dp, 3, 55, round);
+
+    draw_text(dp, 5, 10, "SCORE:");
+    draw_small_number(dp, 5, 55, score);
+}
+
+pub fn show_rhythm_playing(dp: &Peripherals, difficulty: &str, song: &str) {
+    clear(dp);
+    draw_text(dp, 1, 20, "RHYTHM");
+    draw_text(dp, 3, 10, difficulty);
+    draw_text(dp, 5, 10, song);
+}
+
+pub fn show_memory_playing(dp: &Peripherals, difficulty: &str) {
+    clear(dp);
+    draw_text(dp, 1, 20, "MEMORY");
+    draw_text(dp, 4, 10, difficulty);
+}
+pub fn show_main_menu(dp: &Peripherals, selected: u8) {
+
+    clear(dp);
+
+    draw_text(dp, 0, 20, "SELECT MODE");
+
+    if selected == 0 {
+        draw_menu_line(dp, 2, "> RHYTHM");
+        draw_menu_line(dp, 3, "  MEMORY");
+        draw_menu_line(dp, 4, "  LEADERBOARD");
+    } else if selected == 1 {
+        draw_menu_line(dp, 2, "  RHYTHM");
+        draw_menu_line(dp, 3, "> MEMORY");
+        draw_menu_line(dp, 4, "  LEADERBOARD");
+    } else {
+        draw_menu_line(dp, 2, "  RHYTHM");
+        draw_menu_line(dp, 3, "  MEMORY");
+        draw_menu_line(dp, 4, "> LEADERBOARD");
+    }
+}
+
+pub fn show_leaderboard_menu(dp: &Peripherals, selected: u8) {
+
+    clear(dp);
+
+    draw_text(dp, 0, 10, "LEADERBOARD");
+
+    if selected == 0 {
+        draw_menu_line(dp, 2, "> RHYTHM");
+        draw_menu_line(dp, 3, "  MEMORY");
+        draw_menu_line(dp, 4, "  BACK");
+    } else if selected == 1 {
+        draw_menu_line(dp, 2, "  RHYTHM");
+        draw_menu_line(dp, 3, "> MEMORY");
+        draw_menu_line(dp, 4, "  BACK");
+    } else {
+        draw_menu_line(dp, 2, "  RHYTHM");
+        draw_menu_line(dp, 3, "  MEMORY");
+        draw_menu_line(dp, 4, "> BACK");
+    }
+}
+
+pub fn show_rhythm_leaderboard(
+    dp: &Peripherals,
+    easy: i32,
+    medium: i32,
+    hard: i32,
+) {
+    clear(dp);
+
+    draw_text(dp, 0, 10, "RHYTHM BEST");
+
+    draw_text(dp, 2, 0, "EASY:");
+    draw_small_number(dp, 2, 60, easy);
+
+    draw_text(dp, 4, 0, "MED:");
+    draw_small_number(dp, 4, 60, medium);
+
+    draw_text(dp, 6, 0, "HARD:");
+    draw_small_number(dp, 6, 60, hard);
+}
+
+pub fn show_memory_leaderboard(
+    dp: &Peripherals,
+    easy: i32,
+    medium: i32,
+    hard: i32,
+) {
+    clear(dp);
+
+    draw_text(dp, 0, 10, "MEMORY BEST");
+
+    draw_text(dp, 2, 0, "EASY:");
+    draw_small_number(dp, 2, 60, easy);
+
+    draw_text(dp, 4, 0, "MED:");
+    draw_small_number(dp, 4, 60, medium);
+
+    draw_text(dp, 6, 0, "HARD:");
+    draw_small_number(dp, 6, 60, hard);
+}
+pub fn show_text_screen(
+    dp: &Peripherals,
+    line1: &str,
+    line2: &str,
+) {
+
+    clear_screen(dp);
+
+    draw_text(dp, 2, 20, line1);
+    draw_text(dp, 4, 25, line2);
+}
+pub fn clear_screen(dp: &Peripherals) {
+    clear(dp);
+}
+
+pub fn show_wrong(dp: &Peripherals) {
+    show_text_screen(dp, "WRONG", "BUTTON");
+}
