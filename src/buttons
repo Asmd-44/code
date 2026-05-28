@@ -1,0 +1,75 @@
+use stm32u5::stm32u545::Peripherals;
+
+// BTN1 = A0 = PA0
+// BTN2 = A1 = PA1
+// BTN3 = A2 = PA4
+// BTN4 = A3 = PB0
+// BTN5 = D7 = PA8
+
+pub fn init_buttons(dp: &Peripherals) {
+    dp.RCC.ahb2enr1().modify(|_, w| {
+        w.gpioaen().set_bit();
+        w.gpioben().set_bit()
+    });
+
+    // PA0, PA1, PA4, PA8 input
+    dp.GPIOA.moder().modify(|r, w| unsafe {
+        let mut bits = r.bits();
+
+        bits &= !(0b11 << (0 * 2)); // PA0
+        bits &= !(0b11 << (1 * 2)); // PA1
+        bits &= !(0b11 << (4 * 2)); // PA4
+        bits &= !(0b11 << (8 * 2)); // PA8 / D7
+
+        w.bits(bits)
+    });
+
+    // PB0 input
+    dp.GPIOB.moder().modify(|r, w| unsafe {
+        let mut bits = r.bits();
+
+        bits &= !(0b11 << (0 * 2)); // PB0
+
+        w.bits(bits)
+    });
+
+    // Pull-up PA0, PA1, PA4, PA8
+    dp.GPIOA.pupdr().modify(|r, w| unsafe {
+        let mut bits = r.bits();
+
+        bits &= !(0b11 << (0 * 2));
+        bits |= 0b01 << (0 * 2);
+
+        bits &= !(0b11 << (1 * 2));
+        bits |= 0b01 << (1 * 2);
+
+        bits &= !(0b11 << (4 * 2));
+        bits |= 0b01 << (4 * 2);
+
+        bits &= !(0b11 << (8 * 2));
+        bits |= 0b01 << (8 * 2);
+
+        w.bits(bits)
+    });
+
+    // Pull-up PB0
+    dp.GPIOB.pupdr().modify(|r, w| unsafe {
+        let mut bits = r.bits();
+
+        bits &= !(0b11 << (0 * 2));
+        bits |= 0b01 << (0 * 2);
+
+        w.bits(bits)
+    });
+}
+
+pub fn button_pressed(dp: &Peripherals, index: u8) -> bool {
+    match index {
+        0 => dp.GPIOA.idr().read().bits() & (1 << 0) == 0, // BTN1 / A0 / PA0
+        1 => dp.GPIOA.idr().read().bits() & (1 << 1) == 0, // BTN2 / A1 / PA1
+        2 => dp.GPIOA.idr().read().bits() & (1 << 4) == 0, // BTN3 / A2 / PA4
+        3 => dp.GPIOB.idr().read().bits() & (1 << 0) == 0, // BTN4 / A3 / PB0
+        4 => dp.GPIOA.idr().read().bits() & (1 << 8) == 0, // BTN5 / D7 / PA8
+        _ => false,
+    }
+}
