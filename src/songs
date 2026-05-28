@@ -1,0 +1,131 @@
+pub struct Note {
+    pub frequency: u16,
+    pub duration: u16,
+    pub led: u8,
+}
+
+const REST: u16 = 0;
+
+const E2: u16 = 82;
+const A2: u16 = 110;
+const AS2: u16 = 117;
+const B2: u16 = 123;
+const C3: u16 = 131;
+const D3: u16 = 147;
+const E3: u16 = 165;
+const FS3: u16 = 185;
+const G3: u16 = 196;
+const A3: u16 = 220;
+const AS4: u16 = 466;
+const B4: u16 = 494;
+const C5: u16 = 523;
+const D5: u16 = 587;
+const DS5: u16 = 622;
+const E5: u16 = 659;
+const F5: u16 = 698;
+const FS5: u16 = 740;
+const G5: u16 = 784;
+const GS5: u16 = 831;
+const A5: u16 = 880;
+const AS5: u16 = 932;
+const C6: u16 = 1047;
+const CS6: u16 = 1109;
+const D6: u16 = 1175;
+
+const fn d(x: u16) -> u16 {
+    1000 / x
+}
+
+const fn doom_d(divider: i16) -> u16 {
+    let whole: u16 = 1550; 
+    if divider > 0 {
+        whole / divider as u16
+    } else {
+        let base = whole / (-divider) as u16;
+        base + base / 2
+    }
+}
+
+const fn n(frequency: u16, duration: u16, led: u8) -> Note {
+    Note { frequency, duration, led }
+}
+
+//EASY 
+pub const TOKYO_DRIFT: &[Note] = &[
+    n(AS4, d(4), 0), n(REST, d(4), 255), n(AS4, d(4), 1), n(REST, d(4), 255),
+    n(AS4, d(4), 2), n(REST, d(4), 255), n(AS4, d(4), 3), n(REST, d(4), 255),
+    n(AS4, d(3), 4), n(B4, d(3), 0), n(DS5, d(4), 1),
+
+    n(AS4, d(4), 2), n(REST, d(4), 255), n(AS4, d(4), 3), n(REST, d(4), 255),
+    n(AS4, d(3), 4), n(B4, d(3), 0), n(DS5, d(4), 1),
+
+    n(AS4, d(4), 2), n(REST, d(4), 255), n(AS4, d(4), 3), n(REST, d(4), 255),
+    n(AS4, d(3), 4), n(B4, d(3), 0), n(DS5, d(4), 1),
+
+    n(F5, d(4), 2), n(REST, d(4), 255), n(F5, d(4), 3), n(REST, d(4), 255),
+    n(GS5, d(3), 4), n(FS5, d(3), 0), n(F5, d(4), 1),
+
+    n(AS4, d(4), 2), n(REST, d(4), 255), n(AS4, d(4), 3), n(REST, d(4), 255),
+    n(GS5, d(3), 4), n(FS5, d(3), 0), n(F5, d(4), 1),
+
+    n(AS4, d(4), 2), n(REST, d(4), 255), n(AS4, d(4), 3), n(REST, d(4), 255),
+    n(AS4, d(3), 4), n(B4, d(3), 0), n(DS5, d(4), 1),
+
+    n(REST, d(1), 255),
+];
+
+//MEDIUM
+pub const GRAVITY_FALLS: &[Note] = &[
+    n(D5, 900, 0), n(E5, 300, 1), n(F5, 600, 2),
+    n(REST, 250, 255), n(A5, 400, 3), n(G5, 450, 4), n(A5, 300, 3), n(C5, 800, 1),
+    n(REST, 150, 255), n(D5, 900, 0), n(E5, 300, 1), n(F5, 600, 2), n(E5, 700, 1),
+    n(G5, 500, 4), n(A5, 600, 3), n(G5, 600, 4), n(F5, 700, 2),
+
+    n(REST, 200, 255), n(F5, 350, 0), n(F5, 350, 1), n(F5, 350, 2),
+    n(A5, 350, 3), n(A5, 350, 4), n(G5, 350, 3), n(F5, 350, 2),
+
+    n(REST, 200, 255), n(A5, 350, 0), n(A5, 350, 1), n(A5, 350, 2),
+    n(G5, 350, 3), n(A5, 350, 4), n(G5, 350, 3), n(F5, 350, 2),
+
+    n(REST, 200, 255), n(F5, 350, 0), n(F5, 350, 1), n(F5, 350, 2),
+    n(A5, 350, 3), n(A5, 350, 4), n(G5, 350, 3), n(F5, 350, 2),
+
+    n(REST, 200, 255), n(A5, 350, 0), n(A5, 350, 1), n(A5, 350, 2),
+    n(REST, 200, 255), n(CS6, 350, 3), n(CS6, 350, 4), n(CS6, 350, 3),
+
+    n(REST, 200, 255), n(F5, 350, 0), n(F5, 350, 1), n(F5, 350, 2),
+    n(A5, 350, 3), n(A5, 350, 4), n(G5, 350, 3), n(F5, 350, 2),
+
+    n(REST, 200, 255), n(AS5, 350, 0), n(AS5, 350, 1), n(AS5, 350, 2),
+    n(G5, 700, 3), n(C6, 700, 4), n(A5, 700, 3), n(CS6, 700, 4), n(D6, 1200, 0),
+];
+
+//HARD 
+pub const DOOM: &[Note] = &[
+    n(E2, doom_d(8), 0), n(E2, doom_d(8), 1), n(E3, doom_d(8), 2), n(E2, doom_d(8), 3),
+    n(E2, doom_d(8), 4), n(D3, doom_d(8), 3), n(E2, doom_d(8), 2), n(E2, doom_d(8), 1),
+
+    n(C3, doom_d(8), 0), n(E2, doom_d(8), 1), n(E2, doom_d(8), 2), n(AS2, doom_d(8), 3),
+    n(E2, doom_d(8), 4), n(E2, doom_d(8), 3), n(B2, doom_d(8), 2), n(C3, doom_d(8), 1),
+
+    n(E2, doom_d(8), 0), n(E2, doom_d(8), 1), n(E3, doom_d(8), 2), n(E2, doom_d(8), 3),
+    n(E2, doom_d(8), 4), n(D3, doom_d(8), 3), n(E2, doom_d(8), 2), n(E2, doom_d(8), 1),
+
+    n(C3, doom_d(8), 0), n(E2, doom_d(8), 1), n(E2, doom_d(8), 2), n(AS2, doom_d(-2), 3),
+
+    n(E2, doom_d(8), 0), n(E2, doom_d(8), 1), n(E3, doom_d(8), 2), n(E2, doom_d(8), 3),
+    n(E2, doom_d(8), 4), n(D3, doom_d(8), 3), n(E2, doom_d(8), 2), n(E2, doom_d(8), 1),
+
+    n(C3, doom_d(8), 0), n(E2, doom_d(8), 1), n(E2, doom_d(8), 2), n(AS2, doom_d(8), 3),
+    n(E2, doom_d(8), 4), n(E2, doom_d(8), 3), n(B2, doom_d(8), 2), n(C3, doom_d(8), 1),
+
+    n(E2, doom_d(8), 0), n(E2, doom_d(8), 1), n(E3, doom_d(8), 2), n(E2, doom_d(8), 3),
+    n(E2, doom_d(8), 4), n(D3, doom_d(8), 3), n(E2, doom_d(8), 2), n(E2, doom_d(8), 1),
+
+    n(FS3, doom_d(-16), 0), n(D3, doom_d(-16), 1), n(B2, doom_d(-16), 2),
+    n(A3, doom_d(-16), 3), n(FS3, doom_d(-16), 4), n(B2, doom_d(-16), 3),
+    n(D3, doom_d(-16), 2), n(FS3, doom_d(-16), 1), n(A3, doom_d(-16), 0),
+    n(FS3, doom_d(-16), 1), n(D3, doom_d(-16), 2), n(B2, doom_d(-16), 3),
+
+    n(REST, doom_d(1), 255),
+];
